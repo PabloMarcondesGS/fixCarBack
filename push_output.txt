@@ -1,0 +1,19 @@
+﻿branch 'main' set up to track 'origin/main'.
+git : Everything 
+up-to-date
+No linha:1 caractere:1
++ git push -u origin 
+main 2>&1 | Out-File 
+push_output.txt 
+-Encoding utf ...
++ ~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: (Everything up   
+ -to-date:String) [    
+], RemoteException
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
