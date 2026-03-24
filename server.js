@@ -69,23 +69,24 @@ app.get('/api/vehicles', (req, res) => {
 });
 
 app.post('/api/vehicles', (req, res) => {
-  try {
-    const { model, plate, color, type, imageUri } = req.body;
-    if (!model || !plate) {
-      return res.status(400).json({ error: 'Modelo e placa são obrigatórios.' });
+    try {
+        const { model, brand, year, plate, color, type, imageUri, plan } = req.body;
+        const id = Date.now().toString();
+        
+        // Simulação de criação de cliente no Stripe se for plano pago
+        const stripe_customer_id = plan !== 'Free' ? `cus_${id}` : null;
+        const subscription_status = 'active'; // Simulado como ativo para o MVP
+
+        const stmt = db.prepare('INSERT INTO vehicles (id, model, brand, year, plate, color, type, imageUri, plan, subscription_status, stripe_customer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        stmt.run(id, model, brand, year, plate, color, type, imageUri, plan || 'Free', subscription_status, stripe_customer_id);
+        
+        const newVehicle = { id, model, brand, year, plate, color, type, imageUri, plan: plan || 'Free', subscription_status };
+        console.log('Veículo cadastrado:', newVehicle);
+        res.status(201).json(newVehicle);
+    } catch (error) {
+        console.error('Erro ao cadastrar veículo:', error);
+        res.status(500).json({ error: 'Erro ao cadastrar veículo' });
     }
-
-    const id = Date.now().toString();
-    db.prepare("INSERT INTO vehicles (id, model, plate, color, type, imageUri) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, model, plate, color, type || 'Carro', imageUri);
-
-    const newVehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id);
-    console.log('Veículo cadastrado:', newVehicle);
-    res.status(201).json(newVehicle);
-  } catch (error) {
-    console.error('Erro ao cadastrar veículo:', error);
-    res.status(500).json({ error: 'Erro ao cadastrar veículo no banco de dados.' });
-  }
 });
 
 app.delete('/api/vehicles/:id', (req, res) => {
@@ -135,6 +136,17 @@ app.post('/api/appointments', (req, res) => {
   } catch (error) {
     console.error('Erro ao realizar agendamento:', error);
     res.status(500).json({ error: 'Erro ao salvar agendamento no banco de dados.' });
+  }
+});
+
+// Plans
+app.get('/api/plans', (req, res) => {
+  try {
+    const plans = db.prepare("SELECT * FROM plans").all();
+    res.json(plans);
+  } catch (error) {
+    console.error('Erro ao buscar planos:', error);
+    res.status(500).json({ error: 'Erro interno ao buscar planos.' });
   }
 });
 

@@ -31,16 +31,40 @@ const initDb = () => {
   )`).run();
 
   // Vehicles table
-  db.prepare(`CREATE TABLE IF NOT EXISTS vehicles (
-    id TEXT PRIMARY KEY,
-    model TEXT NOT NULL,
-    brand TEXT,
-    year TEXT,
-    plate TEXT,
-    color TEXT,
-    type TEXT,
-    imageUri TEXT
-  )`).run();
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS vehicles (
+            id TEXT PRIMARY KEY,
+            model TEXT NOT NULL,
+            brand TEXT,
+            year TEXT,
+            plate TEXT NOT NULL,
+            color TEXT,
+            type TEXT,
+            imageUri TEXT,
+            plan TEXT DEFAULT 'Free',
+            subscription_status TEXT DEFAULT 'active',
+            stripe_customer_id TEXT,
+            stripe_subscription_id TEXT
+        )
+    `);
+
+    // Migração: Garante que colunas novas existam caso a tabela já tenha sido criada antes
+    const tableInfo = db.prepare("PRAGMA table_info(vehicles)").all();
+    const existingColumns = tableInfo.map(col => col.name);
+    
+    const newColumns = [
+        { name: 'plan', type: "TEXT DEFAULT 'Free'" },
+        { name: 'subscription_status', type: "TEXT DEFAULT 'active'" },
+        { name: 'stripe_customer_id', type: 'TEXT' },
+        { name: 'stripe_subscription_id', type: 'TEXT' }
+    ];
+
+    newColumns.forEach(col => {
+        if (!existingColumns.includes(col.name)) {
+            console.log(`Migrando: Adicionando coluna ${col.name} à tabela vehicles...`);
+            db.exec(`ALTER TABLE vehicles ADD COLUMN ${col.name} ${col.type}`);
+        }
+    });
 
   // Appointments table
   db.prepare(`CREATE TABLE IF NOT EXISTS appointments (
@@ -54,6 +78,24 @@ const initDb = () => {
     FOREIGN KEY (workshop_id) REFERENCES workshops (id),
     FOREIGN KEY (vehicle_id) REFERENCES vehicles (id)
   )`).run();
+
+  // Plans table
+  db.prepare(`CREATE TABLE IF NOT EXISTS plans (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    price REAL NOT NULL,
+    description TEXT
+  )`).run();
+
+  // Seed plans if empty
+  const planCount = db.prepare("SELECT COUNT(*) as count FROM plans").get().count;
+  if (planCount === 0) {
+    console.log("Seeding plans...");
+    const planStmt = db.prepare("INSERT INTO plans VALUES (?, ?, ?, ?)");
+    planStmt.run('Free', 'Grátis', 0.00, 'Funcionalidades básicas');
+    planStmt.run('Basic', 'Básico', 29.90, 'Histórico completo e lembretes');
+    planStmt.run('Premium', 'Premium', 59.90, 'Suporte Prioritário e Relatórios');
+  }
 
   // Seed initial data if empty
   const count = db.prepare("SELECT COUNT(*) as count FROM workshops").get().count;
