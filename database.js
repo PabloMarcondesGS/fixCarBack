@@ -5,7 +5,6 @@ const dbPath = path.resolve(__dirname, 'fixcar.db');
 const db = new Database(dbPath);
 
 const initDb = () => {
-  // Workshops table
   db.prepare(`CREATE TABLE IF NOT EXISTS workshops (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -16,8 +15,20 @@ const initDb = () => {
     phone TEXT,
     lat REAL,
     lng REAL,
-    description TEXT
+    description TEXT,
+    cnpj TEXT,
+    imageUri TEXT
   )`).run();
+
+  // Migração Workshops
+  const workshopTableInfo = db.prepare("PRAGMA table_info(workshops)").all();
+  const workshopColumns = workshopTableInfo.map(col => col.name);
+  if (!workshopColumns.includes('cnpj')) {
+    db.exec("ALTER TABLE workshops ADD COLUMN cnpj TEXT");
+  }
+  if (!workshopColumns.includes('imageUri')) {
+    db.exec("ALTER TABLE workshops ADD COLUMN imageUri TEXT");
+  }
 
   // Reviews table
   db.prepare(`CREATE TABLE IF NOT EXISTS reviews (
@@ -110,6 +121,59 @@ const initDb = () => {
     reviewStmt.run('r1', '1', 'Carlos Silva', 5, 'Ótimo atendimento e preço justo.', '10/03/2026');
     reviewStmt.run('r2', '1', 'Ana Oliveira', 4, 'Serviço de qualidade.', '05/03/2026');
   }
+
+  // Garantia: se user1 existe mas workshop 1 sumiu, recria workshop 1
+  const w1 = db.prepare("SELECT * FROM workshops WHERE id = '1'").get();
+  if (!w1) {
+    console.log("Reinserindo oficina ID 1 faltante...");
+    db.prepare("INSERT INTO workshops (id, name, rating, reviews, address, specialties) VALUES (?, ?, ?, ?, ?, ?)")
+      .run('1', 'Oficina do Jão', 4.8, 120, 'Av. Paulista, 1000', 'Motor,Suspensão,Freios');
+  }
+
+  // Users table
+  db.prepare(`CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    name TEXT,
+    role TEXT,
+    workshop_id TEXT,
+    FOREIGN KEY (workshop_id) REFERENCES workshops (id)
+  )`).run();
+
+  // Migração Users
+  const userTableInfo = db.prepare("PRAGMA table_info(users)").all();
+  if (!userTableInfo.map(c => c.name).includes('workshop_id')) {
+    db.exec("ALTER TABLE users ADD COLUMN workshop_id TEXT");
+  }
+
+  // Seed user1
+  const userCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE username = ?").get('user1').count;
+  if (userCount === 0) {
+    console.log("Seeding user1...");
+    db.prepare("INSERT INTO users (id, username, password, name, role, workshop_id) VALUES (?, ?, ?, ?, ?, ?)")
+      .run('u1', 'user1', 'password123', 'Usuário Oficina 1', 'workshop', '1');
+  } else {
+    // Força atualização em todos os casos para garantir ID 1
+    db.prepare("UPDATE users SET workshop_id = '1' WHERE username = 'user1'").run();
+  }
+
+  // Blocked slots table
+  db.prepare(`CREATE TABLE IF NOT EXISTS blocked_slots (
+    id TEXT PRIMARY KEY,
+    date TEXT NOT NULL,
+    time TEXT NOT NULL,
+    reason TEXT
+  )`).run();
+
+  // Migração Vehicles e Appointments (user_id)
+  ['vehicles', 'appointments'].forEach(table => {
+    const info = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!info.map(c => c.name).includes('user_id')) {
+      console.log(`Migrando: Adicionando user_id à tabela ${table}...`);
+      db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
+    }
+  });
 };
 
 module.exports = {

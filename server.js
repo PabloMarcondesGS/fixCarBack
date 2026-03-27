@@ -37,30 +37,61 @@ app.get('/api/workshops', (req, res) => {
     res.status(500).json({ error: 'Erro interno ao buscar oficinas.' });
   }
 });
-
-app.post('/api/workshops', (req, res) => {
+app.get('/api/workshops/:id', (req, res) => {
   try {
-    const { name, address } = req.body;
-    if (!name || !address) {
-      return res.status(400).json({ error: 'Nome e endereço são obrigatórios.' });
+    const { id } = req.params;
+    const workshop = db.prepare("SELECT * FROM workshops WHERE id = ?").get(id);
+    if (!workshop) {
+      return res.status(404).json({ error: 'Oficina não encontrada.' });
+    }
+    
+    const reviews = db.prepare("SELECT * FROM reviews WHERE workshop_id = ?").all(id);
+    res.json({
+      ...workshop,
+      specialties: workshop.specialties ? workshop.specialties.split(',') : [],
+      location: { lat: workshop.lat, lng: workshop.lng },
+      reviews_list: reviews
+    });
+  } catch (error) {
+    console.error('Erro ao buscar oficina:', error);
+    res.status(500).json({ error: 'Erro interno ao buscar oficina.' });
+  }
+});
+
+app.put('/api/workshops/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, address, cnpj, imageUri, specialties } = req.body;
+    
+    const workshop = db.prepare("SELECT * FROM workshops WHERE id = ?").get(id);
+    if (!workshop) {
+      return res.status(404).json({ error: 'Oficina não encontrada.' });
     }
 
-    const id = Date.now().toString();
-    db.prepare("INSERT INTO workshops (id, name, address, rating, reviews) VALUES (?, ?, ?, ?, ?)")
-      .run(id, name, address, 0, 0);
+    const specsString = Array.isArray(specialties) ? specialties.join(',') : specialties;
 
-    const newWorkshop = db.prepare("SELECT * FROM workshops WHERE id = ?").get(id);
-    res.status(201).json(newWorkshop);
+    db.prepare("UPDATE workshops SET name = ?, address = ?, cnpj = ?, imageUri = ?, specialties = ? WHERE id = ?")
+      .run(name || workshop.name, address || workshop.address, cnpj || workshop.cnpj, imageUri || workshop.imageUri, specsString || workshop.specialties, id);
+
+    const updated = db.prepare("SELECT * FROM workshops WHERE id = ?").get(id);
+    res.json(updated);
   } catch (error) {
-    console.error('Erro ao cadastrar oficina:', error);
-    res.status(500).json({ error: 'Erro ao cadastrar oficina no banco de dados.' });
+    console.error('Erro ao atualizar oficina:', error);
+    res.status(500).json({ error: 'Erro ao atualizar oficina no banco de dados.' });
   }
 });
 
 // Vehicles
 app.get('/api/vehicles', (req, res) => {
   try {
-    const vehicles = db.prepare("SELECT * FROM vehicles").all();
+    const { userId } = req.query;
+    let vehicles;
+    if (userId) {
+      vehicles = db.prepare("SELECT * FROM vehicles WHERE user_id = ?").all(userId);
+    } else {
+      // Por segurança, se não houver userId, retorna lista vazia
+      vehicles = [];
+    }
     res.json(vehicles);
   } catch (error) {
     console.error('Erro ao buscar veículos:', error);
@@ -70,15 +101,15 @@ app.get('/api/vehicles', (req, res) => {
 
 app.post('/api/vehicles', (req, res) => {
     try {
-        const { model, brand, year, plate, color, type, imageUri, plan } = req.body;
+        const { model, brand, year, plate, color, type, imageUri, plan, user_id } = req.body;
         const id = Date.now().toString();
         
         // Simulação de criação de cliente no Stripe se for plano pago
         const stripe_customer_id = plan !== 'Free' ? `cus_${id}` : null;
         const subscription_status = 'active'; // Simulado como ativo para o MVP
 
-        const stmt = db.prepare('INSERT INTO vehicles (id, model, brand, year, plate, color, type, imageUri, plan, subscription_status, stripe_customer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        stmt.run(id, model, brand, year, plate, color, type, imageUri, plan || 'Free', subscription_status, stripe_customer_id);
+        const stmt = db.prepare('INSERT INTO vehicles (id, model, brand, year, plate, color, type, imageUri, plan, subscription_status, stripe_customer_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        stmt.run(id, model, brand, year, plate, color, type, imageUri, plan || 'Free', subscription_status, stripe_customer_id, user_id || null);
         
         const newVehicle = { id, model, brand, year, plate, color, type, imageUri, plan: plan || 'Free', subscription_status };
         console.log('Veículo cadastrado:', newVehicle);
@@ -98,8 +129,13 @@ app.delete('/api/vehicles/:id', (req, res) => {
       return res.status(404).json({ error: 'Veículo não encontrado.' });
     }
 
+    // Primeiro remove agendamentos vinculados para evitar erro de FK
+    db.prepare("DELETE FROM appointments WHERE vehicle_id = ?").run(id);
+    
+    // Depois remove o veículo
     db.prepare("DELETE FROM vehicles WHERE id = ?").run(id);
-    res.json({ message: 'Veículo excluído com sucesso!', vehicle });
+    
+    res.json({ message: 'Veículo e agendamentos vinculados excluídos com sucesso!', vehicle });
   } catch (error) {
     console.error('Erro ao excluir veículo:', error);
     res.status(500).json({ error: 'Erro interno ao excluir veículo.' });
@@ -109,7 +145,17 @@ app.delete('/api/vehicles/:id', (req, res) => {
 // Appointments
 app.get('/api/appointments', (req, res) => {
   try {
-    const appointments = db.prepare("SELECT * FROM appointments").all();
+    const { userId, workshopId } = req.query;
+    let appointments;
+    
+    if (workshopId) {
+      appointments = db.prepare("SELECT * FROM appointments WHERE workshop_id = ?").all(workshopId);
+    } else if (userId) {
+      appointments = db.prepare("SELECT * FROM appointments WHERE user_id = ?").all(userId);
+    } else {
+      // Por segurança, se não houver filtros, retorna lista vazia
+      appointments = [];
+    }
     res.json(appointments);
   } catch (error) {
     console.error('Erro ao buscar agendamentos:', error);
@@ -125,10 +171,11 @@ app.post('/api/appointments', (req, res) => {
     // Suporte tanto para workshopId quanto para retrocompatibilidade
     const workshopId = appointment.workshopId || '1'; // Default para oficina principal se não enviado
     const vehicleId = appointment.vehicleId || '1';   // Default para veículo 1 se não enviado
+    const userId = appointment.user_id || null;
     
-    db.prepare(`INSERT INTO appointments (id, workshop_id, vehicle_id, date, time, service, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, workshopId, vehicleId, appointment.date, appointment.time, appointment.service || 'Geral', 'Pendente');
+    db.prepare(`INSERT INTO appointments (id, workshop_id, vehicle_id, date, time, service, status, user_id) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, workshopId, vehicleId, appointment.date, appointment.time, appointment.service || 'Geral', 'Pendente', userId);
 
     const newAppointment = db.prepare("SELECT * FROM appointments WHERE id = ?").get(id);
     console.log('Agendamento salvo:', newAppointment);
@@ -147,6 +194,74 @@ app.get('/api/plans', (req, res) => {
   } catch (error) {
     console.error('Erro ao buscar planos:', error);
     res.status(500).json({ error: 'Erro interno ao buscar planos.' });
+  }
+});
+
+// Login
+app.post('/api/login', (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Usuário e senha são obrigatórios.' });
+    }
+
+    const user = db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(username, password);
+    
+    if (user) {
+      res.json({
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        workshop_id: user.workshop_id,
+        accessToken: `mtk_${Date.now()}` // Mock token
+      });
+    } else {
+      res.status(401).json({ error: 'Credenciais inválidas.' });
+    }
+  } catch (error) {
+    console.error('Erro ao fazer login:', error);
+    res.status(500).json({ error: 'Erro interno ao processar login.' });
+  }
+});
+
+// Blocked Slots
+app.get('/api/blocked-slots', (req, res) => {
+  try {
+    const slots = db.prepare("SELECT * FROM blocked_slots").all();
+    res.json(slots);
+  } catch (error) {
+    console.error('Erro ao buscar horários bloqueados:', error);
+    res.status(500).json({ error: 'Erro interno ao buscar horários bloqueados.' });
+  }
+});
+
+app.post('/api/blocked-slots', (req, res) => {
+  try {
+    const { date, time, reason } = req.body;
+    if (!date || !time) {
+      return res.status(400).json({ error: 'Data e hora são obrigatórios.' });
+    }
+
+    const id = Date.now().toString();
+    db.prepare("INSERT INTO blocked_slots (id, date, time, reason) VALUES (?, ?, ?, ?)")
+      .run(id, date, time, reason || '');
+
+    res.status(201).json({ id, date, time, reason });
+  } catch (error) {
+    console.error('Erro ao bloquear horário:', error);
+    res.status(500).json({ error: 'Erro ao salvar bloqueio no banco de dados.' });
+  }
+});
+
+app.delete('/api/blocked-slots/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare("DELETE FROM blocked_slots WHERE id = ?").run(id);
+    res.json({ message: 'Bloqueio removido com sucesso.' });
+  } catch (error) {
+    console.error('Erro ao remover bloqueio:', error);
+    res.status(500).json({ error: 'Erro interno ao remover bloqueio.' });
   }
 });
 
