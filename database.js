@@ -109,13 +109,15 @@ const initDb = () => {
   }
 
   // Seed initial data if empty
+  // Limpeza de oficinas mocadas
+  db.prepare("DELETE FROM workshops WHERE id = '2'").run();
+
   const count = db.prepare("SELECT COUNT(*) as count FROM workshops").get().count;
   if (count === 0) {
     console.log("Seeding initial data...");
     
     const workshopStmt = db.prepare("INSERT INTO workshops VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     workshopStmt.run('1', 'Oficina do Jão (SQLite)', 4.8, 124, 'Av. Paulista, 1000 - São Paulo, SP', 'Motor,Suspensão,Freios', '11999999999', -23.561, -46.655, 'Especializada em mecânica pesada.');
-    workshopStmt.run('2', 'Pneus Express', 4.5, 89, 'Rua das Flores, 450 - São Paulo, SP', 'Pneus,Alinhamento,Balanceamento', '11888888888', -23.570, -46.40, 'Foco total em pneus e geometria.');
     
     const reviewStmt = db.prepare("INSERT INTO reviews VALUES (?, ?, ?, ?, ?, ?)");
     reviewStmt.run('r1', '1', 'Carlos Silva', 5, 'Ótimo atendimento e preço justo.', '10/03/2026');
@@ -166,7 +168,7 @@ const initDb = () => {
     reason TEXT
   )`).run();
 
-  // Migração Vehicles e Appointments (user_id)
+  // Migração Vehicles e Appointments (user_id, details)
   ['vehicles', 'appointments'].forEach(table => {
     const info = db.prepare(`PRAGMA table_info(${table})`).all();
     if (!info.map(c => c.name).includes('user_id')) {
@@ -174,6 +176,21 @@ const initDb = () => {
       db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
     }
   });
+
+  const apptInfo = db.prepare("PRAGMA table_info(appointments)").all();
+  const apptCols = apptInfo.map(c => c.name);
+  if (!apptCols.includes('details')) {
+    console.log("Migrando: Adicionando coluna details à tabela appointments...");
+    db.exec("ALTER TABLE appointments ADD COLUMN details TEXT");
+  }
+  if (!apptCols.includes('cost')) {
+    console.log("Migrando: Adicionando coluna cost à tabela appointments...");
+    db.exec("ALTER TABLE appointments ADD COLUMN cost REAL");
+  }
+  if (!apptCols.includes('parts_images')) {
+    console.log("Migrando: Adicionando coluna parts_images à tabela appointments...");
+    db.exec("ALTER TABLE appointments ADD COLUMN parts_images TEXT");
+  }
 };
 
 module.exports = {

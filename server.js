@@ -145,13 +145,39 @@ app.delete('/api/vehicles/:id', (req, res) => {
 // Appointments
 app.get('/api/appointments', (req, res) => {
   try {
-    const { userId, workshopId } = req.query;
+    const { userId, workshopId, date, vehicleId } = req.query;
     let appointments;
     
     if (workshopId) {
-      appointments = db.prepare("SELECT * FROM appointments WHERE workshop_id = ?").all(workshopId);
+      let query = "SELECT a.*, v.model, v.plate FROM appointments a LEFT JOIN vehicles v ON a.vehicle_id = v.id WHERE a.workshop_id = ?";
+      let params = [workshopId];
+      if (date) {
+        query += " AND a.date = ?";
+        params.push(date);
+      }
+      appointments = db.prepare(query).all(...params);
     } else if (userId) {
-      appointments = db.prepare("SELECT * FROM appointments WHERE user_id = ?").all(userId);
+      let query = `
+        SELECT a.*, v.model, v.plate, w.name as workshop_name, w.address as workshop_address
+        FROM appointments a 
+        LEFT JOIN vehicles v ON a.vehicle_id = v.id 
+        LEFT JOIN workshops w ON a.workshop_id = w.id
+        WHERE a.user_id = ?
+      `;
+      let params = [userId];
+      if (date) {
+        query += " AND a.date = ?";
+        params.push(date);
+      }
+      if (vehicleId) {
+        query += " AND a.vehicle_id = ?";
+        params.push(vehicleId);
+      }
+      appointments = db.prepare(query).all(...params);
+    } else if (vehicleId) {
+       // Allow fetching by vehicleId even without userId (e.g. for specific vehicle details)
+       let query = "SELECT a.*, v.model, v.plate, w.name as workshop_name FROM appointments a LEFT JOIN vehicles v ON a.vehicle_id = v.id LEFT JOIN workshops w ON a.workshop_id = w.id WHERE a.vehicle_id = ?";
+       appointments = db.prepare(query).all(vehicleId);
     } else {
       // Por segurança, se não houver filtros, retorna lista vazia
       appointments = [];
@@ -169,9 +195,17 @@ app.post('/api/appointments', (req, res) => {
     const id = Date.now().toString();
     
     // Suporte tanto para workshopId quanto para retrocompatibilidade
-    const workshopId = appointment.workshopId || '1'; // Default para oficina principal se não enviado
-    const vehicleId = appointment.vehicleId || '1';   // Default para veículo 1 se não enviado
+    const workshopId = appointment.workshopId || '1';
+    const vehicleId = appointment.vehicleId || '1';
     const userId = appointment.user_id || null;
+
+    // Verificar se já existe agendamento para este horário nesta oficina
+    const existing = db.prepare("SELECT * FROM appointments WHERE workshop_id = ? AND date = ? AND time = ?")
+      .get(workshopId, appointment.date, appointment.time);
+    
+    if (existing) {
+      return res.status(400).json({ error: 'Este horário já foi preenchido por outro cliente. Por favor, escolha outro.' });
+    }
     
     db.prepare(`INSERT INTO appointments (id, workshop_id, vehicle_id, date, time, service, status, user_id) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -183,6 +217,50 @@ app.post('/api/appointments', (req, res) => {
   } catch (error) {
     console.error('Erro ao realizar agendamento:', error);
     res.status(500).json({ error: 'Erro ao salvar agendamento no banco de dados.' });
+  }
+});
+
+app.get('/api/appointments/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const appointment = db.prepare(`
+      SELECT a.*, v.model, v.plate, v.brand, v.year, v.color, v.type
+      FROM appointments a
+      LEFT JOIN vehicles v ON a.vehicle_id = v.id
+      WHERE a.id = ?
+    `).get(id);
+    
+    if (!appointment) {
+      return res.status(404).json({ error: 'Agendamento não encontrado.' });
+    }
+    res.json(appointment);
+  } catch (error) {
+    console.error('Erro ao buscar agendamento:', error);
+    res.status(500).json({ error: 'Erro interno ao buscar agendamento.' });
+  }
+});
+
+app.put('/api/appointments/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, details, cost, parts_images } = req.body;
+    
+    const appointment = db.prepare("SELECT * FROM appointments WHERE id = ?").get(id);
+    if (!appointment) {
+      return res.status(404).json({ error: 'Agendamento não encontrado.' });
+    }
+
+    // parts_images pode vir como array, vamos converter para string se necessário
+    const imagesString = Array.isArray(parts_images) ? JSON.stringify(parts_images) : parts_images;
+
+    db.prepare("UPDATE appointments SET status = ?, details = ?, cost = ?, parts_images = ? WHERE id = ?")
+      .run(status || appointment.status, details || appointment.details, cost || appointment.cost, imagesString || appointment.parts_images, id);
+
+    const updated = db.prepare("SELECT * FROM appointments WHERE id = ?").get(id);
+    res.json(updated);
+  } catch (error) {
+    console.error('Erro ao atualizar agendamento:', error);
+    res.status(500).json({ error: 'Erro ao atualizar agendamento no banco de dados.' });
   }
 });
 
