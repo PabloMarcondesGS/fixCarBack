@@ -189,6 +189,58 @@ app.get('/api/appointments', (req, res) => {
   }
 });
 
+// Reviews
+app.get('/api/reviews', (req, res) => {
+  try {
+    const { workshopId } = req.query;
+    let reviews;
+    if (workshopId) {
+      reviews = db.prepare("SELECT * FROM reviews WHERE workshop_id = ?").all(workshopId);
+    } else {
+      reviews = db.prepare("SELECT * FROM reviews").all();
+    }
+    res.json(reviews);
+  } catch (error) {
+    console.error('Erro ao buscar avaliações:', error);
+    res.status(500).json({ error: 'Erro interno ao buscar avaliações.' });
+  }
+});
+
+app.post('/api/reviews', (req, res) => {
+  try {
+    const { workshop_id, appointment_id, user_id, userName, rating, comment } = req.body;
+    
+    if (!workshop_id || !rating) {
+      return res.status(400).json({ error: 'Workshop ID e nota são obrigatórios.' });
+    }
+
+    const id = Date.now().toString();
+    const date = new Date().toLocaleDateString('pt-BR');
+
+    // 1. Inserir avaliação
+    db.prepare(`INSERT INTO reviews (id, workshop_id, appointment_id, user_id, userName, rating, comment, date) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, workshop_id, appointment_id || null, user_id || null, userName || 'Cliente', rating, comment || '', date);
+
+    // 2. Se houver appointment_id, marcar como avaliado
+    if (appointment_id) {
+      db.prepare("UPDATE appointments SET rated = 1 WHERE id = ?").run(appointment_id);
+    }
+
+    // 3. Atualizar nota média da oficina
+    const allReviews = db.prepare("SELECT rating FROM reviews WHERE workshop_id = ?").all(workshop_id);
+    const avgRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length;
+    
+    db.prepare("UPDATE workshops SET rating = ?, reviews = ? WHERE id = ?")
+      .run(avgRating.toFixed(1), allReviews.length, workshop_id);
+
+    res.status(201).json({ message: 'Avaliação enviada com sucesso!', rating: avgRating });
+  } catch (error) {
+    console.error('Erro ao enviar avaliação:', error);
+    res.status(500).json({ error: 'Erro ao processar avaliação.' });
+  }
+});
+
 app.post('/api/appointments', (req, res) => {
   try {
     const appointment = req.body;

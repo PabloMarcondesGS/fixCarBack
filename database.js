@@ -34,12 +34,25 @@ const initDb = () => {
   db.prepare(`CREATE TABLE IF NOT EXISTS reviews (
     id TEXT PRIMARY KEY,
     workshop_id TEXT,
+    appointment_id TEXT,
+    user_id TEXT,
     userName TEXT,
     rating INTEGER,
     comment TEXT,
     date TEXT,
-    FOREIGN KEY (workshop_id) REFERENCES workshops (id)
+    FOREIGN KEY (workshop_id) REFERENCES workshops (id),
+    FOREIGN KEY (appointment_id) REFERENCES appointments (id)
   )`).run();
+
+  // Migração Reviews (Garante colunas extras se a tabela já existia)
+  const reviewsTableInfo = db.prepare("PRAGMA table_info(reviews)").all();
+  const reviewsColumns = reviewsTableInfo.map(col => col.name);
+  if (!reviewsColumns.includes('appointment_id')) {
+    db.exec("ALTER TABLE reviews ADD COLUMN appointment_id TEXT");
+  }
+  if (!reviewsColumns.includes('user_id')) {
+    db.exec("ALTER TABLE reviews ADD COLUMN user_id TEXT");
+  }
 
   // Vehicles table
     db.exec(`
@@ -86,6 +99,7 @@ const initDb = () => {
     time TEXT,
     service TEXT,
     status TEXT,
+    rated INTEGER DEFAULT 0,
     FOREIGN KEY (workshop_id) REFERENCES workshops (id),
     FOREIGN KEY (vehicle_id) REFERENCES vehicles (id)
   )`).run();
@@ -117,19 +131,18 @@ const initDb = () => {
     console.log("Seeding initial data...");
     
     const workshopStmt = db.prepare("INSERT INTO workshops VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    workshopStmt.run('1', 'Oficina do Jão (SQLite)', 4.8, 124, 'Av. Paulista, 1000 - São Paulo, SP', 'Motor,Suspensão,Freios', '11999999999', -23.561, -46.655, 'Especializada em mecânica pesada.');
-    
-    const reviewStmt = db.prepare("INSERT INTO reviews VALUES (?, ?, ?, ?, ?, ?)");
-    reviewStmt.run('r1', '1', 'Carlos Silva', 5, 'Ótimo atendimento e preço justo.', '10/03/2026');
-    reviewStmt.run('r2', '1', 'Ana Oliveira', 4, 'Serviço de qualidade.', '05/03/2026');
+    workshopStmt.run('1', 'Oficina do Jão (SQLite)', 0, 0, 'Av. Paulista, 1000 - São Paulo, SP', 'Motor,Suspensão,Freios', '11999999999', -23.561, -46.655, 'Especializada em mecânica pesada.');
   }
+
+  // Limpeza final de avaliações mockadas legadas (r1, r2) se ainda existirem
+  db.prepare("DELETE FROM reviews WHERE id IN ('r1', 'r2')").run();
 
   // Garantia: se user1 existe mas workshop 1 sumiu, recria workshop 1
   const w1 = db.prepare("SELECT * FROM workshops WHERE id = '1'").get();
   if (!w1) {
     console.log("Reinserindo oficina ID 1 faltante...");
     db.prepare("INSERT INTO workshops (id, name, rating, reviews, address, specialties) VALUES (?, ?, ?, ?, ?, ?)")
-      .run('1', 'Oficina do Jão', 4.8, 120, 'Av. Paulista, 1000', 'Motor,Suspensão,Freios');
+      .run('1', 'Oficina do Jão', 0, 0, 'Av. Paulista, 1000', 'Motor,Suspensão,Freios');
   }
 
   // Users table
@@ -191,6 +204,24 @@ const initDb = () => {
     console.log("Migrando: Adicionando coluna parts_images à tabela appointments...");
     db.exec("ALTER TABLE appointments ADD COLUMN parts_images TEXT");
   }
+  if (!apptCols.includes('rated')) {
+    console.log("Migrando: Adicionando coluna rated à tabela appointments...");
+    db.exec("ALTER TABLE appointments ADD COLUMN rated INTEGER DEFAULT 0");
+  }
+
+  // SINCRO: Atualizar a nota de todas as oficinas para refletir a média das avaliações reais
+  const allWorkshops = db.prepare("SELECT id FROM workshops").all();
+  allWorkshops.forEach(w => {
+    const workshopReviews = db.prepare("SELECT rating FROM reviews WHERE workshop_id = ?").all(w.id);
+    if (workshopReviews.length > 0) {
+      const avg = workshopReviews.reduce((sum, r) => sum + r.rating, 0) / workshopReviews.length;
+      db.prepare("UPDATE workshops SET rating = ?, reviews = ? WHERE id = ?")
+        .run(avg.toFixed(1), workshopReviews.length, w.id);
+    } else {
+      // Se não houver avaliações, podemos deixar um valor padrão ou 0
+      db.prepare("UPDATE workshops SET rating = 0, reviews = 0 WHERE id = ?").run(w.id);
+    }
+  });
 };
 
 module.exports = {
