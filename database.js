@@ -3,6 +3,7 @@ const path = require('path');
 
 const dbPath = path.resolve(__dirname, 'fixcar.db');
 const db = new Database(dbPath);
+const bcrypt = require('bcrypt');
 
 const initDb = () => {
   db.prepare(`CREATE TABLE IF NOT EXISTS workshops (
@@ -166,12 +167,22 @@ const initDb = () => {
   const userCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE username = ?").get('user1').count;
   if (userCount === 0) {
     console.log("Seeding user1...");
+    const salt = bcrypt.genSaltSync(10);
+    const hashedPassword = bcrypt.hashSync('password123', salt);
     db.prepare("INSERT INTO users (id, username, password, name, role, workshop_id) VALUES (?, ?, ?, ?, ?, ?)")
-      .run('u1', 'user1', 'password123', 'Usuário Oficina 1', 'workshop', '1');
-  } else {
-    // Força atualização em todos os casos para garantir ID 1
-    db.prepare("UPDATE users SET workshop_id = '1' WHERE username = 'user1'").run();
+      .run('u1', 'user1', hashedPassword, 'Usuário Oficina 1', 'workshop', '1');
   }
+
+  // Migrar QUALQUER senha de texto puro para bcrypt (exceção para google_sso)
+  const allUsers = db.prepare("SELECT id, username, password FROM users").all();
+  allUsers.forEach(u => {
+    if (u.password && u.password !== 'google_sso' && !u.password.startsWith('$2')) {
+      console.log(`Migrando senha do usuário ${u.username} para bcrypt...`);
+      const salt = bcrypt.genSaltSync(10);
+      const hashedPassword = bcrypt.hashSync(u.password, salt);
+      db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hashedPassword, u.id);
+    }
+  });
 
   // Blocked slots table
   db.prepare(`CREATE TABLE IF NOT EXISTS blocked_slots (

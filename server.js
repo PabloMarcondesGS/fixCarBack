@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const { db, initDb } = require('./database');
+const { authMiddleware, JWT_SECRET } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -58,7 +61,7 @@ app.get('/api/workshops/:id', (req, res) => {
   }
 });
 
-app.put('/api/workshops/:id', (req, res) => {
+app.put('/api/workshops/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
     const { name, address, cnpj, imageUri, specialties } = req.body;
@@ -82,7 +85,7 @@ app.put('/api/workshops/:id', (req, res) => {
 });
 
 // Vehicles
-app.get('/api/vehicles', (req, res) => {
+app.get('/api/vehicles', authMiddleware, (req, res) => {
   try {
     const { userId } = req.query;
     let vehicles;
@@ -99,7 +102,7 @@ app.get('/api/vehicles', (req, res) => {
   }
 });
 
-app.post('/api/vehicles', (req, res) => {
+app.post('/api/vehicles', authMiddleware, (req, res) => {
     try {
         const { model, brand, year, plate, color, type, imageUri, plan, user_id } = req.body;
         const id = Date.now().toString();
@@ -120,7 +123,7 @@ app.post('/api/vehicles', (req, res) => {
     }
 });
 
-app.delete('/api/vehicles/:id', (req, res) => {
+app.delete('/api/vehicles/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
     const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id);
@@ -143,7 +146,7 @@ app.delete('/api/vehicles/:id', (req, res) => {
 });
 
 // Appointments
-app.get('/api/appointments', (req, res) => {
+app.get('/api/appointments', authMiddleware, (req, res) => {
   try {
     const { userId, workshopId, date, vehicleId } = req.query;
     let appointments;
@@ -206,7 +209,7 @@ app.get('/api/reviews', (req, res) => {
   }
 });
 
-app.post('/api/reviews', (req, res) => {
+app.post('/api/reviews', authMiddleware, (req, res) => {
   try {
     const { workshop_id, appointment_id, user_id, userName, rating, comment } = req.body;
     
@@ -241,7 +244,7 @@ app.post('/api/reviews', (req, res) => {
   }
 });
 
-app.post('/api/appointments', (req, res) => {
+app.post('/api/appointments', authMiddleware, (req, res) => {
   try {
     const appointment = req.body;
     const id = Date.now().toString();
@@ -272,7 +275,7 @@ app.post('/api/appointments', (req, res) => {
   }
 });
 
-app.get('/api/appointments/:id', (req, res) => {
+app.get('/api/appointments/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
     const appointment = db.prepare(`
@@ -292,7 +295,7 @@ app.get('/api/appointments/:id', (req, res) => {
   }
 });
 
-app.put('/api/appointments/:id', (req, res) => {
+app.put('/api/appointments/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
     const { status, details, cost, parts_images } = req.body;
@@ -328,35 +331,78 @@ app.get('/api/plans', (req, res) => {
 });
 
 // Login
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Usuário e senha são obrigatórios.' });
     }
 
-    const user = db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(username, password);
+    const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
     
-    if (user) {
-      res.json({
-        id: user.id,
-        username: user.username,
-        name: user.name,
-        role: user.role,
-        workshop_id: user.workshop_id,
-        accessToken: `mtk_${Date.now()}` // Mock token
-      });
-    } else {
-      res.status(401).json({ error: 'Credenciais inválidas.' });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
     }
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role, workshop_id: user.workshop_id },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      accessToken: token,
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: user.role,
+      workshop_id: user.workshop_id
+    });
   } catch (error) {
-    console.error('Erro ao fazer login:', error);
-    res.status(500).json({ error: 'Erro interno ao processar login.' });
+    console.error('Erro no login:', error);
+    res.status(500).json({ error: 'Erro interno no servidor.' });
+  }
+});
+
+// Google Login Mock
+app.post('/api/login/google', (req, res) => {
+  try {
+    const { googleId, name, email } = req.body;
+    if (!googleId) {
+      return res.status(400).json({ error: 'ID do Google ausente.' });
+    }
+    
+    const username = email || googleId;
+    let user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
+    
+    if (!user) {
+      db.prepare("INSERT INTO users (id, username, password, name, role) VALUES (?, ?, ?, ?, ?)")
+        .run(googleId, username, 'google_sso', name || 'Google User', 'client');
+      user = db.prepare("SELECT * FROM users WHERE id = ?").get(googleId);
+    }
+    
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    res.json({
+      accessToken: token,
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: user.role
+    });
+  } catch (error) {
+    console.error('Erro no login do google:', error);
+    res.status(500).json({ error: 'Erro interno no servidor.' });
   }
 });
 
 // Blocked Slots
-app.get('/api/blocked-slots', (req, res) => {
+app.get('/api/blocked-slots', authMiddleware, (req, res) => {
   try {
     const slots = db.prepare("SELECT * FROM blocked_slots").all();
     res.json(slots);
@@ -366,7 +412,7 @@ app.get('/api/blocked-slots', (req, res) => {
   }
 });
 
-app.post('/api/blocked-slots', (req, res) => {
+app.post('/api/blocked-slots', authMiddleware, (req, res) => {
   try {
     const { date, time, reason } = req.body;
     if (!date || !time) {
@@ -384,7 +430,7 @@ app.post('/api/blocked-slots', (req, res) => {
   }
 });
 
-app.delete('/api/blocked-slots/:id', (req, res) => {
+app.delete('/api/blocked-slots/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
     db.prepare("DELETE FROM blocked_slots WHERE id = ?").run(id);

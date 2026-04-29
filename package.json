@@ -9,9 +9,11 @@
     "test": "jest"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3",
     "stripe": "^20.4.1"
   },
   "devDependencies": {
