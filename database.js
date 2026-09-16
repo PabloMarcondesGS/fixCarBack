@@ -131,7 +131,7 @@ const initDb = () => {
   if (count === 0) {
     console.log("Seeding initial data...");
     
-    const workshopStmt = db.prepare("INSERT INTO workshops VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    const workshopStmt = db.prepare("INSERT INTO workshops (id, name, rating, reviews, address, specialties, phone, lat, lng, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     workshopStmt.run('1', 'Oficina do Jão (SQLite)', 0, 0, 'Av. Paulista, 1000 - São Paulo, SP', 'Motor,Suspensão,Freios', '11999999999', -23.561, -46.655, 'Especializada em mecânica pesada.');
   }
 
