@@ -215,6 +215,18 @@ const initDb = () => {
     console.log("Migrando: Adicionando coluna parts_images à tabela appointments...");
     db.exec("ALTER TABLE appointments ADD COLUMN parts_images TEXT");
   }
+  if (!apptCols.includes('observations')) {
+    console.log("Migrando: Adicionando coluna observations à tabela appointments...");
+    db.exec("ALTER TABLE appointments ADD COLUMN observations TEXT");
+  }
+  if (!apptCols.includes('observation_media')) {
+    console.log("Migrando: Adicionando coluna observation_media à tabela appointments...");
+    db.exec("ALTER TABLE appointments ADD COLUMN observation_media TEXT");
+  }
+  if (!apptCols.includes('preliminary_cost')) {
+    console.log("Migrando: Adicionando coluna preliminary_cost à tabela appointments...");
+    db.exec("ALTER TABLE appointments ADD COLUMN preliminary_cost REAL");
+  }
   if (!apptCols.includes('rated')) {
     console.log("Migrando: Adicionando coluna rated à tabela appointments...");
     db.exec("ALTER TABLE appointments ADD COLUMN rated INTEGER DEFAULT 0");

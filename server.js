@@ -298,7 +298,7 @@ app.get('/api/appointments/:id', authMiddleware, (req, res) => {
 app.put('/api/appointments/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
-    const { status, details, cost, parts_images } = req.body;
+    const { status, details, cost, preliminary_cost, parts_images, observations, observation_media } = req.body;
     
     const appointment = db.prepare("SELECT * FROM appointments WHERE id = ?").get(id);
     if (!appointment) {
@@ -306,10 +306,23 @@ app.put('/api/appointments/:id', authMiddleware, (req, res) => {
     }
 
     // parts_images pode vir como array, vamos converter para string se necessário
-    const imagesString = Array.isArray(parts_images) ? JSON.stringify(parts_images) : parts_images;
+    const imagesString = Array.isArray(parts_images) ? JSON.stringify(parts_images) : (parts_images !== undefined ? parts_images : appointment.parts_images);
+    const mediaString = Array.isArray(observation_media) ? JSON.stringify(observation_media) : (observation_media !== undefined ? observation_media : appointment.observation_media);
 
-    db.prepare("UPDATE appointments SET status = ?, details = ?, cost = ?, parts_images = ? WHERE id = ?")
-      .run(status || appointment.status, details || appointment.details, cost || appointment.cost, imagesString || appointment.parts_images, id);
+    db.prepare(`
+      UPDATE appointments 
+      SET status = ?, details = ?, cost = ?, preliminary_cost = ?, parts_images = ?, observations = ?, observation_media = ? 
+      WHERE id = ?
+    `).run(
+      status || appointment.status, 
+      details !== undefined ? details : appointment.details, 
+      cost !== undefined ? cost : appointment.cost, 
+      preliminary_cost !== undefined ? preliminary_cost : appointment.preliminary_cost,
+      imagesString, 
+      observations !== undefined ? observations : appointment.observations,
+      mediaString,
+      id
+    );
 
     const updated = db.prepare("SELECT * FROM appointments WHERE id = ?").get(id);
     res.json(updated);
