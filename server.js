@@ -331,7 +331,7 @@ app.get('/api/appointments/:id', authMiddleware, (req, res) => {
 app.put('/api/appointments/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
-    const { status, details, cost, preliminary_cost, parts_images, observations, observation_media } = req.body;
+    const { status, details, cost, preliminary_cost, parts_images, observations, observation_media, analysis_rejection_reason } = req.body;
     
     const appointment = db.prepare("SELECT * FROM appointments WHERE id = ?").get(id);
     if (!appointment) {
@@ -344,7 +344,7 @@ app.put('/api/appointments/:id', authMiddleware, (req, res) => {
 
     db.prepare(`
       UPDATE appointments 
-      SET status = ?, details = ?, cost = ?, preliminary_cost = ?, parts_images = ?, observations = ?, observation_media = ? 
+      SET status = ?, details = ?, cost = ?, preliminary_cost = ?, parts_images = ?, observations = ?, observation_media = ?, analysis_rejection_reason = ? 
       WHERE id = ?
     `).run(
       status || appointment.status, 
@@ -354,6 +354,7 @@ app.put('/api/appointments/:id', authMiddleware, (req, res) => {
       imagesString, 
       observations !== undefined ? observations : appointment.observations,
       mediaString,
+      analysis_rejection_reason !== undefined ? analysis_rejection_reason : appointment.analysis_rejection_reason,
       id
     );
 

@@ -234,6 +234,10 @@ const initDb = () => {
     console.log("Migrando: Adicionando coluna rated à tabela appointments...");
     db.exec("ALTER TABLE appointments ADD COLUMN rated INTEGER DEFAULT 0");
   }
+  if (!apptCols.includes('analysis_rejection_reason')) {
+    console.log("Migrando: Adicionando coluna analysis_rejection_reason à tabela appointments...");
+    db.exec("ALTER TABLE appointments ADD COLUMN analysis_rejection_reason TEXT");
+  }
 
   // SINCRO: Atualizar a nota de todas as oficinas para refletir a média das avaliações reais
   const allWorkshops = db.prepare("SELECT id FROM workshops").all();
