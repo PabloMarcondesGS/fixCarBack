@@ -104,17 +104,50 @@ app.get('/api/vehicles', authMiddleware, (req, res) => {
 
 app.post('/api/vehicles', authMiddleware, (req, res) => {
     try {
-        const { model, brand, year, plate, color, type, imageUri, plan, user_id } = req.body;
+        const { model, brand, year, plate, color, type, imageUri, plan, user_id, current_km, last_oil_change, history_notes } = req.body;
         const id = Date.now().toString();
         
         // Simulação de criação de cliente no Stripe se for plano pago
         const stripe_customer_id = plan !== 'Free' ? `cus_${id}` : null;
         const subscription_status = 'active'; // Simulado como ativo para o MVP
 
-        const stmt = db.prepare('INSERT INTO vehicles (id, model, brand, year, plate, color, type, imageUri, plan, subscription_status, stripe_customer_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        stmt.run(id, model, brand, year, plate, color, type, imageUri, plan || 'Free', subscription_status, stripe_customer_id, user_id || null);
+        const stmt = db.prepare(`
+          INSERT INTO vehicles (id, model, brand, year, plate, color, type, imageUri, plan, subscription_status, stripe_customer_id, user_id, current_km, last_oil_change, history_notes) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(
+          id, 
+          model, 
+          brand || null, 
+          year || null, 
+          plate, 
+          color, 
+          type, 
+          imageUri || null, 
+          plan || 'Free', 
+          subscription_status, 
+          stripe_customer_id, 
+          user_id || null,
+          current_km ? Number(current_km) : null,
+          last_oil_change || null,
+          history_notes || null
+        );
         
-        const newVehicle = { id, model, brand, year, plate, color, type, imageUri, plan: plan || 'Free', subscription_status };
+        const newVehicle = { 
+          id, 
+          model, 
+          brand, 
+          year, 
+          plate, 
+          color, 
+          type, 
+          imageUri, 
+          plan: plan || 'Free', 
+          subscription_status,
+          current_km: current_km ? Number(current_km) : null,
+          last_oil_change: last_oil_change || null,
+          history_notes: history_notes || null
+        };
         console.log('Veículo cadastrado:', newVehicle);
         res.status(201).json(newVehicle);
     } catch (error) {

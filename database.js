@@ -81,7 +81,10 @@ const initDb = () => {
         { name: 'plan', type: "TEXT DEFAULT 'Free'" },
         { name: 'subscription_status', type: "TEXT DEFAULT 'active'" },
         { name: 'stripe_customer_id', type: 'TEXT' },
-        { name: 'stripe_subscription_id', type: 'TEXT' }
+        { name: 'stripe_subscription_id', type: 'TEXT' },
+        { name: 'current_km', type: 'INTEGER' },
+        { name: 'last_oil_change', type: 'TEXT' },
+        { name: 'history_notes', type: 'TEXT' }
     ];
 
     newColumns.forEach(col => {
